@@ -1,7 +1,9 @@
-import { Buffer } from 'buffer';
-import process from 'process';
-import { Near } from "./near";
+import { Buffer } from "buffer";
+import process from "process";
+import { api as near } from "./near";
 
 window.Buffer = Buffer;
 window.process = process;
-window.Near = Near;
+window.near = near;
+
+export { near };

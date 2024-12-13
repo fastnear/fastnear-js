@@ -10,12 +10,14 @@
     "buffer": "^6.0.3",
     "esbuild": "^0.24.0",
     "process": "^0.11.10",
-    "util": "^0.12.5"
+    "util": "^0.12.5",
+    "big.js": "^6.2.2"
   },
   "scripts": {
     "build": "esbuild src/index.js --bundle --minify --outfile=dist/fastnear.js"
   },
   "dependencies": {
-    "near-api-js": "^5.0.1"
+    "near-api-js": "^5.0.1",
+    "prettier": "^3.4.2"
   }
 }
