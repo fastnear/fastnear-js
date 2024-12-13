@@ -77,21 +77,29 @@ const api = {
     },
 
     get authStatus() {
-        if (!_accountId) return 'SignedOut';
-        // TODO: Check for limited access key
+        if (!this._accountId) return 'SignedOut';
+        
+        // Check for limited access key
+        const accessKey = this._activeAccessKey;
+        if (accessKey && accessKey.permission !== 'FullAccess') {
+            return {
+                type: 'SignedInWithLimitedAccessKey',
+                accessKey
+            };
+        }
         return 'SignedIn';
     },
 
     // Query Methods
-    async view({ contract, method, args, blockId }) {
-        const argsBase64 = args ? Buffer.from(JSON.stringify(args)).toString('base64') : '';
+    async view({ contract, method, args, argsBase64, blockId }) {
+        const encodedArgs = argsBase64 || (args ? Buffer.from(JSON.stringify(args)).toString('base64') : '');
         
         const result = await queryRpc('query', {
             request_type: 'call_function',
             finality: blockId === 'final' ? 'final' : 'optimistic',
             account_id: contract,
             method_name: method,
-            args_base64: argsBase64
+            args_base64: encodedArgs
         });
 
         return parseJsonFromBytes(result.result);
