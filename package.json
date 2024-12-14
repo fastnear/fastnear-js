@@ -1,5 +1,5 @@
 {
-  "name": "fastnear-js",
+  "name": "@fastnear/js",
   "version": "0.0.1",
   "description": "The only NEAR front-end package you need",
   "main": "src/index.js",

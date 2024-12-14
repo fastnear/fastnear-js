@@ -1,7 +1,14 @@
 import Big from "big.js";
 import { WalletAdapter } from "@fastnear/wallet-adapter";
 import * as crypto from "./crypto";
-import { deepCopy, lsGet, lsSet, toBase58, toBase64 } from "./utils";
+import {
+  deepCopy,
+  lsGet,
+  lsSet,
+  toBase58,
+  toBase64,
+  tryParseJson,
+} from "./utils";
 import { sha256, signBytes } from "./crypto";
 import {
   serializeSignedTransaction,
@@ -38,6 +45,7 @@ let _state;
     privateKey,
     publicKey: privateKey ? crypto.publicKeyFromPrivate(privateKey) : null,
   };
+  console.log("Initial state:", _state);
 }
 
 const _txHistory = {};
@@ -53,11 +61,14 @@ function updateState(newState) {
   lsSet("privateKey", _state.privateKey);
   lsSet("lastWalletId", _state.lastWalletId);
   lsSet("accessKeyContractId", _state.accessKeyContractId);
-  if (newState.privateKey !== oldState.privateKey) {
+  if (
+    newState.hasOwnProperty("privateKey") &&
+    newState.privateKey !== oldState.privateKey
+  ) {
     _state.publicKey = newState.privateKey
       ? crypto.publicKeyFromPrivate(newState.privateKey)
       : null;
-    lsGet("nonce", null);
+    lsSet("nonce", null);
   }
   if (newState.accountId !== oldState.accountId) {
     notifyAccountListeners(newState.accountId);
@@ -81,7 +92,6 @@ function onAdapterStateUpdate(state) {
 
 // Create adapter instance
 const _adapter = new WalletAdapter({
-  widgetUrl: "https://wallet-adapter-widget.pages.dev/",
   onStateUpdate: onAdapterStateUpdate,
 });
 
@@ -120,7 +130,7 @@ async function queryRpc(method, params) {
 
   const result = await response.json();
   if (result.error) {
-    throw new Error(`RPC Error: ${result.error.message}`);
+    throw new Error(JSON.stringify(result.error));
   }
   return result.result;
 }
@@ -151,7 +161,7 @@ function sendTxToRpc(signedTxBase64, waitUntil, txId) {
           updateTxHistory({
             txId,
             status: "ErrorAfterIncluded",
-            error,
+            error: tryParseJson(error.message),
           });
         });
     })
@@ -159,7 +169,7 @@ function sendTxToRpc(signedTxBase64, waitUntil, txId) {
       updateTxHistory({
         txId,
         status: "Error",
-        error,
+        error: tryParseJson(error.message),
       });
     });
 }
@@ -323,6 +333,7 @@ const api = {
     }
 
     if (receiverId !== _state.accessKeyContractId) {
+      // _adapter.sendTransaction();
       throw new Error("Need to use walletAdapter. Not implemented yet");
     }
 
@@ -348,6 +359,12 @@ const api = {
         Date.now()
     ) {
       toDoPromises.block = this.block({ blockId: "final" }).then((block) => {
+        block = {
+          header: {
+            prev_hash: block.header.prev_hash,
+            timestamp_nanosec: block.header.timestamp_nanosec,
+          },
+        };
         lsSet("block", block);
         return block;
       });
@@ -418,13 +435,13 @@ const api = {
     if (result.error) {
       throw new Error(`Wallet error: ${result.error}`);
     }
-    if (result.accountId) {
+    if (result.url) {
+      console.log("Redirecting to wallet:", result.url);
+      window.location.href = result.url;
+    } else if (result.accountId) {
       updateState({
         accountId: result.accountId,
       });
-    } else if (result.url) {
-      console.log("Redirecting to wallet:", result.url);
-      window.location.href = result.url;
     }
   },
 
@@ -537,6 +554,12 @@ try {
       );
     }
   }
+  // Remove wallet parameters from the URL
+  url.searchParams.delete("account_id");
+  url.searchParams.delete("public_key");
+  url.searchParams.delete("error_code");
+  url.searchParams.delete("all_keys");
+  window.history.replaceState({}, "", url.toString());
 } catch (e) {
   console.error("Error handling wallet redirect:", e);
 }

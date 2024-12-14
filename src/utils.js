@@ -18,15 +18,31 @@ export function fromBase64(data) {
 export function lsSet(key, value) {
   if (value === null || value === undefined) {
     localStorage.removeItem(LsPrefix + key);
+  } else {
+    localStorage.setItem(LsPrefix + key, JSON.stringify(value));
   }
-  localStorage.setItem(LsPrefix + key, JSON.stringify(value));
 }
 
 export function lsGet(key) {
   const value = localStorage.getItem(LsPrefix + key);
-  return value ? JSON.parse(value) : null;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return null;
+  }
 }
 
 export function deepCopy(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+export function tryParseJson(...args) {
+  try {
+    return JSON.parse(args[0]);
+  } catch {
+    if (args.length > 1) {
+      return args[1];
+    }
+    return value;
+  }
 }

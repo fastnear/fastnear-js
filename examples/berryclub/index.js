@@ -153,7 +153,7 @@ function Counter() {
             });
         }}
       >
-        Draw left top pixel green
+        Draw green pixel
       </button>
 
       <div
