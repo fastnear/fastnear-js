@@ -45,7 +45,6 @@ let _state;
     privateKey,
     publicKey: privateKey ? crypto.publicKeyFromPrivate(privateKey) : null,
   };
-  console.log("Initial state:", _state);
 }
 
 const _txHistory = {};
