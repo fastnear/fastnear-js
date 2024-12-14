@@ -1,8 +1,15 @@
 {
-  "name": "@fastnear/js",
-  "version": "0.0.1",
+  "name": "@fastnear/api",
+  "version": "0.0.1-rc.1",
   "description": "The only NEAR front-end package you need",
+  "type": "module",
   "main": "src/index.js",
+  "module": "./dist/fastnear.ejs",
+  "browser": "./dist/fastnear.js",
+  "files": [
+    "dist",
+    "src"
+  ],
   "repository": "https://github.com/fastnear/fastnear-js.git",
   "author": "FastNEAR",
   "license": "MIT",
@@ -11,16 +18,16 @@
     "prettier": "^3.4.2"
   },
   "scripts": {
-    "build": "esbuild src/index.js --bundle --minify --outfile=dist/fastnear.js",
+    "build": "node build.js",
     "dev": "esbuild src/index.js --bundle --outfile=dist/fastnear.js"
   },
   "dependencies": {
-    "buffer": "^6.0.3",
-    "big.js": "^6.2.2",
-    "@fastnear/wallet-adapter": "github:fastnear/wallet-adapter",
+    "@fastnear/wallet-adapter": "^0.1.0",
     "@noble/curves": "^1.7.0",
     "@noble/hashes": "^1.6.1",
     "base58-js": "=2.0.0",
-    "borsh": "^2.0.0"
+    "big.js": "^6.2.2",
+    "borsh": "^2.0.0",
+    "buffer": "^6.0.3"
   }
 }
