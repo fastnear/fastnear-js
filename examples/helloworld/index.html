@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>React Inline Example</title>
+
+  <!-- FastNear JS locally -->
+  <script src="js/fastnear.js"></script>
+
+  <!-- React CDN -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+  // Import React and ReactDOM from window object
+  const { useState } = React;
+  const { near } = window;
+
+  // Simple Counter Component
+  function Counter() {
+    const [count, setCount] = useState(0);
+
+    return (
+      <div>
+        {near.accountId ?
+          <div key="sign-out">
+            <h1>Logged in as {near.accountId}</h1>
+            <button onClick={() => near.signOut()}>Sign Out</button>
+          </div>
+          :
+          <div key="sign-in">
+            <button onClick={() => near.requestSignIn({ contractId: "example.testnet" })}>Sign In</button>
+          </div>
+        }
+
+        // Sending hello
+        <button onClick={() => near.sendTx({
+          receiverId: "example.testnet",
+          actions: [
+            near.actions.functionCall({
+              methodName: "hello",
+              gas: $$`100 Tgas`,
+              deposit: "0",
+              args: { name: "Alice" }
+            })
+          ]
+        })}>Send Hello</button>
+      </div>
+    );
+  }
+
+  // Render the app
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<Counter />);
+</script>
+</body>
+</html>

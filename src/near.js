@@ -86,19 +86,35 @@ function notifyTxListeners(tx) {
   });
 }
 
-function convertUnit(s) {
+function convertUnit(s, ...args) {
+  // Reconstruct raw string from template literal
+  if (Array.isArray(s)) {
+    s = s.reduce((acc, part, i) => {
+      return acc + (args[i - 1] || "") + part;
+    });
+  }
   // Convert from `100 NEAR` into yoctoNear
-  if (s.includes(" ")) {
-    const [amount, unit] = s.split(" ");
-    switch (unit.toLowerCase()) {
-      case "near":
-        return Big(amount).mul(Big(10).pow(24)).toFixed(0);
-      case "tgas":
-        return Big(amount).mul(Big(10).pow(12)).toFixed(0);
-      case "gas" || "yoctonear":
+  if (typeof s == "string") {
+    let match = s.match(/([0-9.,_]+)\s*([a-zA-Z]+)?/);
+    if (match) {
+      let amount = match[1].replace(/[_,]/g, "");
+      let unitPart = match[2];
+      if (unitPart) {
+        switch (unitPart.toLowerCase()) {
+          case "near":
+            return Big(amount).mul(Big(10).pow(24)).toFixed(0);
+          case "tgas":
+            return Big(amount).mul(Big(10).pow(12)).toFixed(0);
+          case "ggas":
+            return Big(amount).mul(Big(10).pow(9)).toFixed(0);
+          case "gas" || "yoctonear":
+            return Big(amount).toFixed(0);
+          default:
+            throw new Error(`Unknown unit: ${unit}`);
+        }
+      } else {
         return Big(amount).toFixed(0);
-      default:
-        throw new Error(`Unknown unit: ${unit}`);
+      }
     }
   }
   return Big(s).toFixed(0);
