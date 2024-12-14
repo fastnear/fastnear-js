@@ -32,15 +32,19 @@ const decodeLine = (line) => {
 
 // Simple Counter Component
 function Counter() {
-  const [nonce, setNonce] = useState(0);
+  const [nonce, setNonce] = useState(
+    ~~(Math.random() * BoardHeight * BoardHeight),
+  );
   const [totalSupply, setTotalSupply] = useState("");
   const [berryAccount, setBerryAccount] = useState(null);
   const [encodedLines, setEncodedLines] = useState([]);
   useEffect(() => {
-    near.onAccount(() => {
+    near.onAccount((accountId) => {
+      console.log("Account ID Update", accountId);
       setNonce((nonce) => nonce + 1);
     });
-    near.onTx(() => {
+    near.onTx((txStatus) => {
+      console.log("Tx Status Update", txStatus);
       setNonce((nonce) => nonce + 1);
     });
   }, []);
@@ -117,6 +121,41 @@ function Counter() {
             : DefaultBalance}
         </div>
       )}
+
+      <button
+        className="btn btn-success m-1"
+        onClick={() => {
+          near
+            .sendTx({
+              receiverId: contractId,
+              actions: [
+                near.actions.functionCall({
+                  methodName: "draw",
+                  gas: $$`100 Tgas`,
+                  deposit: "0",
+                  args: {
+                    pixels: [
+                      {
+                        x: nonce % BoardHeight,
+                        y: ~~(nonce / BoardHeight) % BoardHeight,
+                        color: 255 << 8, // green
+                      },
+                    ],
+                  },
+                }),
+              ],
+            })
+            .then((txId) => {
+              console.log("Drawn", txId);
+            })
+            .catch((err) => {
+              console.error("Failed to draw", err);
+            });
+        }}
+      >
+        Draw left top pixel green
+      </button>
+
       <div
         className="mw-100 d-flex align-items-stretch flex-column align-content-stretch"
         style={{ maxHeight: "420px", aspectRatio: "1 / 1" }}
@@ -127,33 +166,6 @@ function Counter() {
           </div>
         ))}
       </div>
-
-      <button
-        className="btn btn-success m-1"
-        onClick={() =>
-          near.sendTx({
-            receiverId: contractId,
-            actions: [
-              near.actions.functionCall({
-                methodName: "draw",
-                gas: $$`100 Tgas`,
-                deposit: "0",
-                args: {
-                  pixels: [
-                    {
-                      x: 0,
-                      y: 0,
-                      color: 255 << 8, // green
-                    },
-                  ],
-                },
-              }),
-            ],
-          })
-        }
-      >
-        Draw left top pixel green
-      </button>
     </div>
   );
 }

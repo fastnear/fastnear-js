@@ -2,8 +2,36 @@ import { serialize as borshSerialize } from "borsh";
 import { keyFromString } from "./crypto";
 import { fromBase58, fromBase64 } from "./utils";
 
-export function serializeTransaction(transaction) {
+function mapTransaction(jsonTransaction) {
+  return {
+    signerId: jsonTransaction.signerId,
+    publicKey: {
+      ed25519Key: {
+        data: keyFromString(jsonTransaction.publicKey),
+      },
+    },
+    nonce: BigInt(jsonTransaction.nonce),
+    receiverId: jsonTransaction.receiverId,
+    blockHash: fromBase58(jsonTransaction.blockHash),
+    actions: jsonTransaction.actions.map(mapAction),
+  };
+}
+
+export function serializeTransaction(jsonTransaction) {
+  const transaction = mapTransaction(jsonTransaction);
   return borshSerialize(SCHEMA.Transaction, transaction);
+}
+
+export function serializeSignedTransaction(jsonTransaction, signature) {
+  const signedTransaction = {
+    transaction: mapTransaction(jsonTransaction),
+    signature: {
+      ed25519Signature: {
+        data: fromBase58(signature),
+      },
+    },
+  };
+  return borshSerialize(SCHEMA.SignedTransaction, signedTransaction);
 }
 
 export function mapAction(action) {

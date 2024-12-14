@@ -1,9 +1,12 @@
 import Big from "big.js";
 import { WalletAdapter } from "@fastnear/wallet-adapter";
 import * as crypto from "./crypto";
-import { fromBase58, lsGet, lsSet, toBase64 } from "./utils";
-import { keyFromString } from "./crypto";
-import { mapAction, serializeTransaction } from "./transaction";
+import { deepCopy, lsGet, lsSet, toBase58, toBase64 } from "./utils";
+import { sha256, signBytes } from "./crypto";
+import {
+  serializeSignedTransaction,
+  serializeTransaction,
+} from "./transaction";
 
 Big.DP = 27;
 
@@ -37,7 +40,7 @@ let _state;
   };
 }
 
-const _txHistory = [];
+const _txHistory = {};
 const _eventListeners = {
   account: new Set(),
   tx: new Set(),
@@ -59,6 +62,12 @@ function updateState(newState) {
   if (newState.accountId !== oldState.accountId) {
     notifyAccountListeners(newState.accountId);
   }
+}
+
+function updateTxHistory(txStatus) {
+  const txId = txStatus.txId;
+  _txHistory[txId] = { ...(_txHistory[txId] ?? {}), ...txStatus };
+  notifyTxListeners(_txHistory[txId]);
 }
 
 function onAdapterStateUpdate(state) {
@@ -116,6 +125,45 @@ async function queryRpc(method, params) {
   return result.result;
 }
 
+function sendTxToRpc(signedTxBase64, waitUntil, txId) {
+  queryRpc("send_tx", {
+    signed_tx_base64: signedTxBase64,
+    wait_until: waitUntil ?? "INCLUDED",
+  })
+    .then((result) => {
+      updateTxHistory({
+        txId,
+        status: "Included",
+      });
+      queryRpc("tx", {
+        tx_hash: _txHistory[txId].txHash,
+        sender_account_id: _txHistory[txId].tx.signerId,
+        wait_until: "EXECUTED_OPTIMISTIC",
+      })
+        .then((result) => {
+          updateTxHistory({
+            txId,
+            status: "Executed",
+            result,
+          });
+        })
+        .catch((error) => {
+          updateTxHistory({
+            txId,
+            status: "ErrorAfterIncluded",
+            error,
+          });
+        });
+    })
+    .catch((error) => {
+      updateTxHistory({
+        txId,
+        status: "Error",
+        error,
+      });
+    });
+}
+
 // Event Notifiers
 function notifyAccountListeners(accountId) {
   _eventListeners.account.forEach((callback) => {
@@ -130,7 +178,7 @@ function notifyAccountListeners(accountId) {
 function notifyTxListeners(tx) {
   _eventListeners.tx.forEach((callback) => {
     try {
-      callback(accountId);
+      callback(deepCopy(tx));
     } catch (e) {
       console.error(e);
     }
@@ -269,7 +317,7 @@ const api = {
   },
 
   // Transaction Methods
-  async sendTx({ receiverId, actions, ...rest }) {
+  async sendTx({ receiverId, actions, waitUntil }) {
     if (!_state.accountId) {
       throw new Error("Not signed in");
     }
@@ -280,6 +328,7 @@ const api = {
 
     const signerId = _state.accountId;
     const publicKey = _state.publicKey;
+    const privateKey = _state.privateKey;
 
     const toDoPromises = {};
     let nonce = lsGet("nonce");
@@ -321,24 +370,35 @@ const api = {
 
     const txId = `tx-${Date.now()}-${Math.random()}`;
 
-    const transaction = serializeTransaction({
+    const jsonTransaction = {
       signerId,
-      publicKey: {
-        ed25519Key: keyFromString(publicKey),
-      },
-      nonce: BigInt(newNonce),
+      publicKey,
+      nonce: newNonce,
       receiverId,
-      blockHash: fromBase58(blockHash),
-      actions: actions.map(mapAction),
-    });
+      blockHash,
+      actions,
+    };
 
-    updateTxHistory(txId, {
+    console.log("Transaction:", jsonTransaction);
+    const transaction = serializeTransaction(jsonTransaction);
+    const txHash = toBase58(sha256(transaction));
+    const signature = crypto.signHash(txHash, privateKey);
+    const singedTransaction = serializeSignedTransaction(
+      jsonTransaction,
+      signature,
+    );
+    const signedTxBase64 = toBase64(singedTransaction);
+
+    updateTxHistory({
       status: "Pending",
-      transaction: toBase64(transaction),
+      txId,
+      tx: deepCopy(jsonTransaction),
+      signature,
+      signedTxBase64,
+      txHash,
     });
 
-    _txHistory.push(txStatus);
-    notifyTxListeners(txStatus);
+    sendTxToRpc(signedTxBase64, waitUntil, txId);
 
     return txId;
   },

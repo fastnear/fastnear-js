@@ -26,3 +26,7 @@ export function lsGet(key) {
   const value = localStorage.getItem(LsPrefix + key);
   return value ? JSON.parse(value) : null;
 }
+
+export function deepCopy(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
