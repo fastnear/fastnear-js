@@ -16,7 +16,7 @@ Context:
 
 Queries:
 
-`near.view({ contract, method, args, argsBase64, blockId }): Promise<any>`
+`near.view({ contractId, methodName, args, argsBase64, blockId }): Promise<any>`
 - `blockId` is optional and can be either a block hash, a block height or finality (`final` or `optimistic`)
 
 `near.account({ accountId, blockId }): Promise<Account>`
@@ -72,43 +72,5 @@ Events:
 
 `near.onTx((txStatus: TxStatus) => {})`
 - called when a transaction status changes locally or remotely. E.g. you sent a new transaction, or a transaction that you sent was confirmed.
-
-### Example:
-
-```jsx
-near.config({ networkId: "testnet" });
-
-near.onAccount((accountId) => {
-  console.log("Account changed to", accountId);
-});
-
-near.onTx((txStatus) => {
-  console.log("Transaction status changed", txStatus);
-});
-
-return <div>
-  {near.accountId ?
-    <div key="sign-out">
-      <h1>Logged in as {near.accountId}</h1>
-      <button onClick={() => near.signOut()}>Sign Out</button>
-    </div>
-    : 
-    <div key="sign-in">
-      <button onClick={() => near.requestSignIn({ contractId: "example.testnet" })}>Sign In</button>
-    </div>
-  }
-  
-  <button onClick={() => near.sendTx({
-    receiverId: "example.testnet",
-    actions: [
-      near.actions.functionCall({
-        methodName: "hello",
-        gas: $$`100 Tgas`,
-        deposit: "0",
-        args: { name: "Alice" }
-      })
-    ]
-  })}>Send Hello</button>
-</div>;
 
 ```

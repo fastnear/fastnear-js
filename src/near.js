@@ -1,9 +1,15 @@
 import Big from "big.js";
 import { WalletAdapter } from "@fastnear/wallet-adapter";
+import * as crypto from "./crypto";
+import { fromBase58, lsGet, lsSet, toBase64 } from "./utils";
+import { keyFromString } from "./crypto";
+import { mapAction, serializeTransaction } from "./transaction";
 
 Big.DP = 27;
 
 // Constants
+const MaxBlockDelayMs = 1000 * 60 * 60 * 6; // 6 hours
+
 const DEFAULT_NETWORK_ID = "mainnet";
 const NETWORKS = {
   testnet: {
@@ -18,16 +24,50 @@ const NETWORKS = {
 
 // State
 let _config = { ...NETWORKS[DEFAULT_NETWORK_ID] };
-let _accountId = null;
-let _publicKey = null;
+
+let _state;
+{
+  const privateKey = lsGet("privateKey");
+  _state = {
+    accountId: lsGet("accountId"),
+    accessKeyContractId: lsGet("accessKeyContractId"),
+    lastWalletId: lsGet("lastWalletId"),
+    privateKey,
+    publicKey: privateKey ? crypto.publicKeyFromPrivate(privateKey) : null,
+  };
+}
+
 const _txHistory = [];
 const _eventListeners = {
   account: new Set(),
   tx: new Set(),
 };
 
+function updateState(newState) {
+  const oldState = _state;
+  _state = { ..._state, ...newState };
+  lsSet("accountId", _state.accountId);
+  lsSet("privateKey", _state.privateKey);
+  lsSet("lastWalletId", _state.lastWalletId);
+  lsSet("accessKeyContractId", _state.accessKeyContractId);
+  if (newState.privateKey !== oldState.privateKey) {
+    _state.publicKey = newState.privateKey
+      ? crypto.publicKeyFromPrivate(newState.privateKey)
+      : null;
+    lsGet("nonce", null);
+  }
+  if (newState.accountId !== oldState.accountId) {
+    notifyAccountListeners(newState.accountId);
+  }
+}
+
 function onAdapterStateUpdate(state) {
   console.log("Adapter state update:", state);
+  updateState({
+    privateKey: state.privateKey,
+    accountId: state.accountId,
+    lastWalletId: state.lastWalletId,
+  });
 }
 
 // Create adapter instance
@@ -135,11 +175,11 @@ function convertUnit(s, ...args) {
 const api = {
   // Context
   get accountId() {
-    return _accountId;
+    return _state.accountId;
   },
 
   get publicKey() {
-    return _publicKey;
+    return _state.publicKey;
   },
 
   config(newConfig) {
@@ -153,32 +193,33 @@ const api = {
   },
 
   get authStatus() {
-    if (!_accountId) return "SignedOut";
+    if (!_state.accountId) return "SignedOut";
 
     // Check for limited access key
-    const accessKey = _publicKey;
+    const accessKey = _state.publicKey;
+    const contractId = _state.accessKeyContractId;
     if (accessKey) {
       return {
         type: "SignedInWithLimitedAccessKey",
         accessKey,
+        contractId,
       };
     }
     return "SignedIn";
   },
 
   // Query Methods
-  async view({ contract, method, args, argsBase64, blockId }) {
+  async view({ contractId, methodName, args, argsBase64, blockId }) {
     const encodedArgs =
-      argsBase64 ||
-      (args ? Buffer.from(JSON.stringify(args)).toString("base64") : "");
+      argsBase64 || (args ? toBase64(JSON.stringify(args)) : "");
 
     const result = await queryRpc(
       "query",
       withBlockId(
         {
           request_type: "call_function",
-          account_id: contract,
-          method_name: method,
+          account_id: contractId,
+          method_name: methodName,
           args_base64: encodedArgs,
         },
         blockId,
@@ -229,57 +270,110 @@ const api = {
 
   // Transaction Methods
   async sendTx({ receiverId, actions, ...rest }) {
-    if (!_accountId) throw new Error("Not signed in");
+    if (!_state.accountId) {
+      throw new Error("Not signed in");
+    }
 
-    const accessKey = await this.accessKey({
-      accountId: _accountId,
-      publicKey: _publicKey,
+    if (receiverId !== _state.accessKeyContractId) {
+      throw new Error("Need to use walletAdapter. Not implemented yet");
+    }
+
+    const signerId = _state.accountId;
+    const publicKey = _state.publicKey;
+
+    const toDoPromises = {};
+    let nonce = lsGet("nonce");
+    if (!nonce) {
+      toDoPromises.nonce = this.accessKey({
+        accountId: signerId,
+        publicKey,
+      }).then((accessKey) => {
+        lsSet("nonce", accessKey.nonce);
+        return accessKey.nonce;
+      });
+    }
+    let block = lsGet("block");
+    if (
+      !block ||
+      parseFloat(block.header.timestamp_nanosec) / 1e6 + MaxBlockDelayMs <
+        Date.now()
+    ) {
+      toDoPromises.block = this.block({ blockId: "final" }).then((block) => {
+        lsSet("block", block);
+        return block;
+      });
+    }
+
+    if (Object.keys(toDoPromises).length > 0) {
+      let results = await Promise.all(Object.values(toDoPromises));
+      for (let i = 0; i < results.length; i++) {
+        if (Object.keys(toDoPromises)[i] === "nonce") {
+          nonce = results[i];
+        } else if (Object.keys(toDoPromises)[i] === "block") {
+          block = results[i];
+        }
+      }
+    }
+
+    const newNonce = nonce + 1;
+    lsSet("nonce", newNonce);
+    const blockHash = block.header.prev_hash;
+
+    const txId = `tx-${Date.now()}-${Math.random()}`;
+
+    const transaction = serializeTransaction({
+      signerId,
+      publicKey: {
+        ed25519Key: keyFromString(publicKey),
+      },
+      nonce: BigInt(newNonce),
+      receiverId,
+      blockHash: fromBase58(blockHash),
+      actions: actions.map(mapAction),
     });
 
-    const block = await this.block({ blockId: "final" });
-
-    const txHash = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const txStatus = {
-      id: txHash,
-      signerId: _accountId,
-      receiverId,
-      actions,
-      status: "pending",
-      timestamp: Date.now(),
-      ...rest,
-    };
+    updateTxHistory(txId, {
+      status: "Pending",
+      transaction: toBase64(transaction),
+    });
 
     _txHistory.push(txStatus);
     notifyTxListeners(txStatus);
 
-    // TODO: Implement actual transaction signing and sending
-    // This would require wallet integration
-
-    return txHash;
+    return txId;
   },
 
   // Authentication Methods
   async requestSignIn({ contractId }) {
+    updateState({
+      accessKeyContractId: contractId,
+      accountId: null,
+      privateKey: null,
+    });
     const result = await _adapter.signIn({
       networkId: _config.networkId,
       contractId,
     });
+    console.log("Sign in result:", result);
     if (result.error) {
       throw new Error(`Wallet error: ${result.error}`);
     }
     if (result.accountId) {
-      _accountId = result.accountId;
-      notifyAccountListeners(result.accountId);
+      updateState({
+        accountId: result.accountId,
+      });
     } else if (result.url) {
       console.log("Redirecting to wallet:", result.url);
-      // window.location.href = result.url;
+      window.location.href = result.url;
     }
   },
 
   signOut() {
-    _accountId = null;
-    _publicKey = null;
-    notifyAccountListeners(null);
+    updateState({
+      accountId: null,
+      privateKey: null,
+      contractId: null,
+    });
 
     // TODO: Implement actual wallet integration
   },
@@ -351,9 +445,9 @@ const api = {
       type: "CreateAccount",
     }),
 
-    deployContract: ({ code }) => ({
+    deployContract: ({ codeBase64 }) => ({
       type: "DeployContract",
-      code,
+      codeBase64,
     }),
   },
 };
@@ -371,9 +465,17 @@ try {
   }
 
   if (accountId && publicKey) {
-    _accountId = accountId;
-    _publicKey = publicKey;
-    notifyAccountListeners(accountId);
+    if (publicKey === _state.publicKey) {
+      updateState({
+        accountId,
+      });
+    } else {
+      console.error(
+        new Error("Public key mismatch from wallet redirect"),
+        publicKey,
+        _state.publicKey,
+      );
+    }
   }
 } catch (e) {
   console.error("Error handling wallet redirect:", e);
