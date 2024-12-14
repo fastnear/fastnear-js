@@ -11,7 +11,8 @@
     "esbuild": "^0.24.0",
     "process": "^0.11.10",
     "util": "^0.12.5",
-    "big.js": "^6.2.2"
+    "big.js": "^6.2.2",
+    "@fastnear/wallet-adapter": "github:fastnear/wallet-adapter"
   },
   "scripts": {
     "build": "esbuild src/index.js --bundle --minify --outfile=dist/fastnear.js"

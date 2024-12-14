@@ -98,7 +98,6 @@ return <div>
     </div>
   }
   
-  // Sending hello
   <button onClick={() => near.sendTx({
     receiverId: "example.testnet",
     actions: [

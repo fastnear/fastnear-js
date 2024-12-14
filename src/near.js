@@ -1,4 +1,5 @@
 import Big from "big.js";
+import { WalletAdapter } from "@fastnear/wallet-adapter";
 
 Big.DP = 27;
 
@@ -24,6 +25,16 @@ const _eventListeners = {
   account: new Set(),
   tx: new Set(),
 };
+
+function onAdapterStateUpdate(state) {
+  console.log("Adapter state update:", state);
+}
+
+// Create adapter instance
+const _adapter = new WalletAdapter({
+  widgetUrl: "https://wallet-adapter-widget.pages.dev/",
+  onStateUpdate: onAdapterStateUpdate,
+});
 
 // Utils
 function parseJsonFromBytes(bytes) {
@@ -133,6 +144,9 @@ const api = {
 
   config(newConfig) {
     if (newConfig) {
+      if (newConfig.networkId && _config.networkId !== newConfig.networkId) {
+        throw new Error("TODO: Network ID change should handle scope");
+      }
       _config = { ..._config, ...newConfig };
     }
     return _config;
@@ -246,7 +260,20 @@ const api = {
 
   // Authentication Methods
   async requestSignIn({ contractId }) {
-    // TODO: Implement actual wallet redirect, etc
+    const result = await _adapter.signIn({
+      networkId: _config.networkId,
+      contractId,
+    });
+    if (result.error) {
+      throw new Error(`Wallet error: ${result.error}`);
+    }
+    if (result.accountId) {
+      _accountId = result.accountId;
+      notifyAccountListeners(result.accountId);
+    } else if (result.url) {
+      console.log("Redirecting to wallet:", result.url);
+      // window.location.href = result.url;
+    }
   },
 
   signOut() {
@@ -340,7 +367,7 @@ try {
   const errorCode = url.searchParams.get("error_code");
 
   if (errorCode) {
-    throw new Error(`Wallet error: ${errorCode}`);
+    console.error(new Error(`Wallet error: ${errorCode}`));
   }
 
   if (accountId && publicKey) {
