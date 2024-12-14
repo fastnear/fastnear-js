@@ -1,3 +1,7 @@
+import Big from "big.js";
+
+Big.DP = 27;
+
 // Constants
 const DEFAULT_NETWORK_ID = "mainnet";
 const NETWORKS = {
@@ -80,6 +84,24 @@ function notifyTxListeners(tx) {
       console.error(e);
     }
   });
+}
+
+function convertUnit(s) {
+  // Convert from `100 NEAR` into yoctoNear
+  if (s.includes(" ")) {
+    const [amount, unit] = s.split(" ");
+    switch (unit.toLowerCase()) {
+      case "near":
+        return Big(amount).mul(Big(10).pow(24)).toFixed(0);
+      case "tgas":
+        return Big(amount).mul(Big(10).pow(12)).toFixed(0);
+      case "gas" || "yoctonear":
+        return Big(amount).toFixed(0);
+      default:
+        throw new Error(`Unknown unit: ${unit}`);
+    }
+  }
+  return Big(s).toFixed(0);
 }
 
 // Core API Implementation
@@ -314,4 +336,4 @@ try {
   console.error("Error handling wallet redirect:", e);
 }
 
-export { api };
+export { api, convertUnit };
