@@ -121,6 +121,24 @@ function Counter() {
             : DefaultBalance}
         </div>
       )}
+      <button
+        className="btn btn-danger m-1"
+        onClick={() => {
+          near
+            .sendTx({
+              receiverId: "mike.near",
+              actions: [near.actions.transfer($$`0.01 NEAR`)],
+            })
+            .then((txId) => {
+              console.log("Sent", txId);
+            })
+            .catch((err) => {
+              console.error("Failed to send", err);
+            });
+        }}
+      >
+        Send money to mike.near
+      </button>
 
       <button
         className="btn btn-success m-1"

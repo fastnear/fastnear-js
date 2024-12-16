@@ -25,11 +25,7 @@ export function lsSet(key, value) {
 
 export function lsGet(key) {
   const value = localStorage.getItem(LsPrefix + key);
-  try {
-    return JSON.parse(value);
-  } catch (e) {
-    return null;
-  }
+  return tryParseJson(value, null);
 }
 
 export function deepCopy(obj) {

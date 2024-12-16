@@ -2,7 +2,8 @@ import Big from "big.js";
 import { WalletAdapter } from "@fastnear/wallet-adapter";
 import * as crypto from "./crypto";
 import {
-  deepCopy,
+  fromBase58,
+  fromBase64,
   lsGet,
   lsSet,
   toBase58,
@@ -35,31 +36,47 @@ const NETWORKS = {
 // State
 let _config = { ...NETWORKS[DEFAULT_NETWORK_ID] };
 
-let _state;
-{
-  const privateKey = lsGet("privateKey");
-  _state = {
-    accountId: lsGet("accountId"),
-    accessKeyContractId: lsGet("accessKeyContractId"),
-    lastWalletId: lsGet("lastWalletId"),
-    privateKey,
-    publicKey: privateKey ? crypto.publicKeyFromPrivate(privateKey) : null,
-  };
+let _state = lsGet("state") || {};
+try {
+  _state.publicKey = _state.privateKey
+    ? crypto.publicKeyFromPrivate(_state.privateKey)
+    : null;
+} catch (e) {
+  console.error("Error parsing private key:", e);
+  _state.privateKey = null;
+  lsSet("nonce", null);
 }
 
-const _txHistory = {};
+// TODO: Store tx history in local storage more efficiently
+const _txHistory = lsGet("txHistory") || {};
 const _eventListeners = {
   account: new Set(),
   tx: new Set(),
 };
+const _unbroadcastedEvents = {
+  account: [],
+  tx: [],
+};
+
+function getWalletAdapterState() {
+  return {
+    publicKey: _state.publicKey,
+    accountId: _state.accountId,
+    lastWalletId: _state.lastWalletId,
+    networkId: DEFAULT_NETWORK_ID,
+  };
+}
+let _adapter;
 
 function updateState(newState) {
   const oldState = _state;
   _state = { ..._state, ...newState };
-  lsSet("accountId", _state.accountId);
-  lsSet("privateKey", _state.privateKey);
-  lsSet("lastWalletId", _state.lastWalletId);
-  lsSet("accessKeyContractId", _state.accessKeyContractId);
+  lsSet("state", {
+    accountId: _state.accountId,
+    privateKey: _state.privateKey,
+    lastWalletId: _state.lastWalletId,
+    accessKeyContractId: _state.accessKeyContractId,
+  });
   if (
     newState.hasOwnProperty("privateKey") &&
     newState.privateKey !== oldState.privateKey
@@ -72,11 +89,26 @@ function updateState(newState) {
   if (newState.accountId !== oldState.accountId) {
     notifyAccountListeners(newState.accountId);
   }
+  if (
+    (newState.hasOwnProperty("lastWalletId") &&
+      newState.lastWalletId !== oldState.lastWalletId) ||
+    (newState.hasOwnProperty("accountId") &&
+      newState.accountId !== oldState.accountId) ||
+    (newState.hasOwnProperty("privateKey") &&
+      newState.privateKey !== oldState.privateKey)
+  ) {
+    _adapter.setState(getWalletAdapterState());
+  }
 }
 
 function updateTxHistory(txStatus) {
   const txId = txStatus.txId;
-  _txHistory[txId] = { ...(_txHistory[txId] ?? {}), ...txStatus };
+  _txHistory[txId] = {
+    ...(_txHistory[txId] ?? {}),
+    ...txStatus,
+    updateTimestamp: Date.now(),
+  };
+  lsSet("txHistory", _txHistory);
   notifyTxListeners(_txHistory[txId]);
 }
 
@@ -90,8 +122,10 @@ function onAdapterStateUpdate(state) {
 }
 
 // Create adapter instance
-const _adapter = new WalletAdapter({
+_adapter = new WalletAdapter({
   onStateUpdate: onAdapterStateUpdate,
+  lastState: getWalletAdapterState(),
+  widgetUrl: "http://localhost:3000/",
 });
 
 // Utils
@@ -134,47 +168,63 @@ async function queryRpc(method, params) {
   return result.result;
 }
 
+function afterTxSent(txId) {
+  queryRpc("tx", {
+    tx_hash: _txHistory[txId].txHash,
+    sender_account_id: _txHistory[txId].tx.signerId,
+    wait_until: "EXECUTED_OPTIMISTIC",
+  })
+    .then((result) => {
+      updateTxHistory({
+        txId,
+        status: "Executed",
+        result,
+        finalStatus: true,
+      });
+    })
+    .catch((error) => {
+      updateTxHistory({
+        txId,
+        status: "ErrorAfterIncluded",
+        error: tryParseJson(error.message),
+        finalStatus: true,
+      });
+    });
+}
+
 function sendTxToRpc(signedTxBase64, waitUntil, txId) {
   queryRpc("send_tx", {
     signed_tx_base64: signedTxBase64,
     wait_until: waitUntil ?? "INCLUDED",
   })
     .then((result) => {
+      console.log("Transaction included:", result);
       updateTxHistory({
         txId,
         status: "Included",
+        finalStatus: false,
       });
-      queryRpc("tx", {
-        tx_hash: _txHistory[txId].txHash,
-        sender_account_id: _txHistory[txId].tx.signerId,
-        wait_until: "EXECUTED_OPTIMISTIC",
-      })
-        .then((result) => {
-          updateTxHistory({
-            txId,
-            status: "Executed",
-            result,
-          });
-        })
-        .catch((error) => {
-          updateTxHistory({
-            txId,
-            status: "ErrorAfterIncluded",
-            error: tryParseJson(error.message),
-          });
-        });
+      afterTxSent(txId);
     })
     .catch((error) => {
+      // TODO: Catch nonce errors and update nonce
+      // TODO: Handle timeouts (non-final status)
+      // TODO: Handle shard congestions
       updateTxHistory({
         txId,
         status: "Error",
         error: tryParseJson(error.message),
+        finalStatus: false,
       });
     });
 }
 
 // Event Notifiers
 function notifyAccountListeners(accountId) {
+  if (_eventListeners.account.size === 0) {
+    _unbroadcastedEvents.account.push(accountId);
+    return;
+  }
   _eventListeners.account.forEach((callback) => {
     try {
       callback(accountId);
@@ -185,9 +235,13 @@ function notifyAccountListeners(accountId) {
 }
 
 function notifyTxListeners(tx) {
+  if (_eventListeners.tx.size === 0) {
+    _unbroadcastedEvents.tx.push(tx);
+    return;
+  }
   _eventListeners.tx.forEach((callback) => {
     try {
-      callback(deepCopy(tx));
+      callback(tx);
     } catch (e) {
       console.error(e);
     }
@@ -198,7 +252,7 @@ function convertUnit(s, ...args) {
   // Reconstruct raw string from template literal
   if (Array.isArray(s)) {
     s = s.reduce((acc, part, i) => {
-      return acc + (args[i - 1] || "") + part;
+      return acc + (args[i - 1] ?? "") + part;
     });
   }
   // Convert from `100 NEAR` into yoctoNear
@@ -327,18 +381,45 @@ const api = {
 
   // Transaction Methods
   async sendTx({ receiverId, actions, waitUntil }) {
-    if (!_state.accountId) {
+    const signerId = _state.accountId;
+    if (!signerId) {
       throw new Error("Not signed in");
     }
 
-    if (receiverId !== _state.accessKeyContractId) {
-      // _adapter.sendTransaction();
-      throw new Error("Need to use walletAdapter. Not implemented yet");
-    }
-
-    const signerId = _state.accountId;
     const publicKey = _state.publicKey;
     const privateKey = _state.privateKey;
+    const txId = `tx-${Date.now()}-${Math.random()}`;
+
+    if (receiverId !== _state.accessKeyContractId) {
+      const jsonTransaction = {
+        signerId,
+        receiverId,
+        actions,
+      };
+
+      updateTxHistory({
+        status: "Pending",
+        txId,
+        tx: jsonTransaction,
+        finalState: false,
+      });
+
+      const url = new URL(window.location.href);
+      url.searchParams.set("txIds", txId);
+
+      const result = await _adapter.sendTransactions({
+        transactions: [jsonTransaction],
+        callbackUrl: url.toString(),
+      });
+      console.log("Transaction result:", result);
+      if (result.url) {
+        console.log("Redirecting to wallet:", result.url);
+        setTimeout(() => {
+          window.location.href = result.url;
+        }, 100);
+      }
+      return txId;
+    }
 
     const toDoPromises = {};
     let nonce = lsGet("nonce");
@@ -384,8 +465,6 @@ const api = {
     lsSet("nonce", newNonce);
     const blockHash = block.header.prev_hash;
 
-    const txId = `tx-${Date.now()}-${Math.random()}`;
-
     const jsonTransaction = {
       signerId,
       publicKey,
@@ -408,10 +487,11 @@ const api = {
     updateTxHistory({
       status: "Pending",
       txId,
-      tx: deepCopy(jsonTransaction),
+      tx: jsonTransaction,
       signature,
       signedTxBase64,
       txHash,
+      finalState: false,
     });
 
     sendTxToRpc(signedTxBase64, waitUntil, txId);
@@ -436,7 +516,9 @@ const api = {
     }
     if (result.url) {
       console.log("Redirecting to wallet:", result.url);
-      window.location.href = result.url;
+      setTimeout(() => {
+        window.location.href = result.url;
+      }, 100);
     } else if (result.accountId) {
       updateState({
         accountId: result.accountId,
@@ -457,10 +539,20 @@ const api = {
   // Event Handlers
   onAccount(callback) {
     _eventListeners.account.add(callback);
+    if (_unbroadcastedEvents.account.length > 0) {
+      const events = _unbroadcastedEvents.account;
+      _unbroadcastedEvents.account = [];
+      events.forEach(notifyAccountListeners);
+    }
   },
 
   onTx(callback) {
     _eventListeners.tx.add(callback);
+    if (_unbroadcastedEvents.tx.length > 0) {
+      const events = _unbroadcastedEvents.tx;
+      _unbroadcastedEvents.tx = [];
+      events.forEach(notifyTxListeners);
+    }
   },
 
   // Action Helpers
@@ -526,7 +618,16 @@ const api = {
       codeBase64,
     }),
   },
+
+  utils: {
+    toBase64,
+    fromBase64,
+    toBase58,
+    fromBase58,
+  },
 };
+
+// _adapter.handleWalletRedirect();
 
 // Handle wallet redirect if applicable
 // TODO: Implement actual wallet integration
@@ -534,10 +635,13 @@ try {
   const url = new URL(window.location.href);
   const accountId = url.searchParams.get("account_id");
   const publicKey = url.searchParams.get("public_key");
-  const errorCode = url.searchParams.get("error_code");
+  const errorCode = url.searchParams.get("errorCode");
+  const errorMessage = url.searchParams.get("errorMessage");
+  const transactionHashes = url.searchParams.get("transactionHashes");
+  const txIds = url.searchParams.get("txIds");
 
-  if (errorCode) {
-    console.error(new Error(`Wallet error: ${errorCode}`));
+  if (errorCode || errorMessage) {
+    console.warn(new Error(`Wallet error: ${errorCode} ${errorMessage}`));
   }
 
   if (accountId && publicKey) {
@@ -553,11 +657,45 @@ try {
       );
     }
   }
+
+  if (transactionHashes || txIds) {
+    const txHashes = transactionHashes ? transactionHashes.split(",") : [];
+    const txIdsArray = txIds ? txIds.split(",") : [];
+    if (txIdsArray.length > txHashes.length) {
+      txIdsArray.forEach((txId, i) => {
+        updateTxHistory({
+          txId,
+          status: "RejectedByUser",
+          finalState: true,
+        });
+      });
+    } else if (txIdsArray.length === txHashes.length) {
+      txIdsArray.forEach((txId, i) => {
+        updateTxHistory({
+          txId,
+          status: "PendingGotTxHash",
+          txHash: txHashes[i],
+          finalState: false,
+        });
+        afterTxSent(txId);
+      });
+    } else {
+      console.error(
+        new Error("Transaction hash mismatch from wallet redirect"),
+        txIdsArray,
+        txHashes,
+      );
+    }
+  }
+
   // Remove wallet parameters from the URL
   url.searchParams.delete("account_id");
   url.searchParams.delete("public_key");
-  url.searchParams.delete("error_code");
+  url.searchParams.delete("errorCode");
+  url.searchParams.delete("errorMessage");
   url.searchParams.delete("all_keys");
+  url.searchParams.delete("transactionHashes");
+  url.searchParams.delete("txIds");
   window.history.replaceState({}, "", url.toString());
 } catch (e) {
   console.error("Error handling wallet redirect:", e);
