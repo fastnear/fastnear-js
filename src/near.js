@@ -1,6 +1,6 @@
 import Big from "big.js";
 import { WalletAdapter } from "@fastnear/wallet-adapter";
-import * as crypto from "./crypto";
+import * as cryptoUtils from "./cryptoUtils.js";
 import {
   canSignWithLAK,
   fromBase58,
@@ -11,7 +11,6 @@ import {
   toBase64,
   tryParseJson,
 } from "./utils";
-import { sha256, signBytes } from "./crypto";
 import {
   serializeSignedTransaction,
   serializeTransaction,
@@ -40,7 +39,7 @@ let _config = { ...NETWORKS[DEFAULT_NETWORK_ID] };
 let _state = lsGet("state") || {};
 try {
   _state.publicKey = _state.privateKey
-    ? crypto.publicKeyFromPrivate(_state.privateKey)
+    ? cryptoUtils.publicKeyFromPrivate(_state.privateKey)
     : null;
 } catch (e) {
   console.error("Error parsing private key:", e);
@@ -83,7 +82,7 @@ function updateState(newState) {
     newState.privateKey !== oldState.privateKey
   ) {
     _state.publicKey = newState.privateKey
-      ? crypto.publicKeyFromPrivate(newState.privateKey)
+      ? cryptoUtils.publicKeyFromPrivate(newState.privateKey)
       : null;
     lsSet("nonce", null);
   }
@@ -115,10 +114,11 @@ function updateTxHistory(txStatus) {
 
 function onAdapterStateUpdate(state) {
   console.log("Adapter state update:", state);
+  const { accountId, lastWalletId, privateKey } = state;
   updateState({
-    privateKey: state.privateKey,
-    accountId: state.accountId,
-    lastWalletId: state.lastWalletId,
+    accountId,
+    lastWalletId,
+    ...(privateKey && { privateKey }),
   });
 }
 
@@ -458,11 +458,14 @@ const api = {
 
     const toDoPromises = {};
     let nonce = lsGet("nonce");
-    if (!nonce) {
+    if (nonce === null || nonce === undefined) {
       toDoPromises.nonce = this.accessKey({
         accountId: signerId,
         publicKey,
       }).then((accessKey) => {
+        if (accessKey.error) {
+          throw new Error(`Access key error: ${accessKey.error}`);
+        }
         lsSet("nonce", accessKey.nonce);
         return accessKey.nonce;
       });
@@ -511,8 +514,8 @@ const api = {
 
     console.log("Transaction:", jsonTransaction);
     const transaction = serializeTransaction(jsonTransaction);
-    const txHash = toBase58(sha256(transaction));
-    const signature = crypto.signHash(txHash, privateKey);
+    const txHash = toBase58(cryptoUtils.sha256(transaction));
+    const signature = cryptoUtils.signHash(txHash, privateKey);
     const singedTransaction = serializeSignedTransaction(
       jsonTransaction,
       signature,
@@ -536,14 +539,17 @@ const api = {
 
   // Authentication Methods
   async requestSignIn({ contractId }) {
+    const privateKey = cryptoUtils.privateKeyFromRandom();
     updateState({
       accessKeyContractId: contractId,
       accountId: null,
-      privateKey: null,
+      privateKey,
     });
+    const publicKey = cryptoUtils.publicKeyFromPrivate(privateKey);
     const result = await _adapter.signIn({
       networkId: _config.networkId,
       contractId,
+      publicKey,
     });
     console.log("Sign in result:", result);
     if (result.error) {

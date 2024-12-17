@@ -25,6 +25,11 @@ export function publicKeyFromPrivate(privateKey) {
   return keyToString(publicKey);
 }
 
+export function privateKeyFromRandom() {
+  const privateKey = crypto.getRandomValues(new Uint8Array(64));
+  return keyToString(privateKey);
+}
+
 export function signHash(hash, privateKey) {
   privateKey = keyFromString(privateKey).slice(0, 32);
   const signature = ed25519.sign(fromBase58(hash), privateKey);

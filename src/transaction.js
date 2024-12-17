@@ -1,5 +1,5 @@
 import { serialize as borshSerialize } from "borsh";
-import { keyFromString } from "./crypto";
+import { keyFromString } from "./cryptoUtils.js";
 import { fromBase58, fromBase64 } from "./utils";
 
 function mapTransaction(jsonTransaction) {
