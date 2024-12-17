@@ -2,6 +2,7 @@ import Big from "big.js";
 import { WalletAdapter } from "@fastnear/wallet-adapter";
 import * as crypto from "./crypto";
 import {
+  canSignWithLAK,
   fromBase58,
   fromBase64,
   lsGet,
@@ -390,7 +391,7 @@ const api = {
     const privateKey = _state.privateKey;
     const txId = `tx-${Date.now()}-${Math.random()}`;
 
-    if (receiverId !== _state.accessKeyContractId) {
+    if (receiverId !== _state.accessKeyContractId || !canSignWithLAK(actions)) {
       const jsonTransaction = {
         signerId,
         receiverId,
@@ -439,7 +440,7 @@ const api = {
             updateTxHistory({
               txId,
               status: "Error",
-              error: tryParseJson(result.error.message),
+              error: tryParseJson(result.error),
               finalState: true,
             });
           }

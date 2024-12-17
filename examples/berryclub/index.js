@@ -122,12 +122,19 @@ function Counter() {
         </div>
       )}
       <button
-        className="btn btn-danger m-1"
+        className="btn btn-primary btn-lg m-1"
         onClick={() => {
           near
             .sendTx({
-              receiverId: "mike.near",
-              actions: [near.actions.transfer($$`1000.01 NEAR`)],
+              receiverId: contractId,
+              actions: [
+                near.actions.functionCall({
+                  methodName: "buy_tokens",
+                  gas: $$`100 Tgas`,
+                  deposit: $$`0.1 NEAR`,
+                  args: {},
+                }),
+              ],
             })
             .then((txId) => {
               console.log("Sent", txId);
@@ -137,7 +144,7 @@ function Counter() {
             });
         }}
       >
-        Send money to mike.near
+        Buy 25 Avocado berries
       </button>
 
       <button

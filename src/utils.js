@@ -2,6 +2,7 @@ import {
   binary_to_base58 as toBase58,
   base58_to_binary as fromBase58,
 } from "base58-js";
+import Big from "big.js";
 
 export { toBase58, fromBase58 };
 
@@ -39,6 +40,14 @@ export function tryParseJson(...args) {
     if (args.length > 1) {
       return args[1];
     }
-    return value;
+    return args[0];
   }
+}
+
+export function canSignWithLAK(actions) {
+  return (
+    actions.length === 1 &&
+    actions[0].type === "FunctionCall" &&
+    Big(actions[0]?.deposit ?? "0").eq(0)
+  );
 }
