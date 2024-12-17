@@ -407,17 +407,51 @@ const api = {
       const url = new URL(window.location.href);
       url.searchParams.set("txIds", txId);
 
-      const result = await _adapter.sendTransactions({
-        transactions: [jsonTransaction],
-        callbackUrl: url.toString(),
-      });
-      console.log("Transaction result:", result);
-      if (result.url) {
-        console.log("Redirecting to wallet:", result.url);
-        setTimeout(() => {
-          window.location.href = result.url;
-        }, 100);
-      }
+      _adapter
+        .sendTransactions({
+          transactions: [jsonTransaction],
+          callbackUrl: url.toString(),
+        })
+        .then((result) => {
+          console.log("Transaction result:", result);
+          if (result.url) {
+            console.log("Redirecting to wallet:", result.url);
+            setTimeout(() => {
+              window.location.href = result.url;
+            }, 100);
+          } else if (result.outcomes) {
+            result.outcomes.forEach((result) => {
+              updateTxHistory({
+                txId,
+                status: "Executed",
+                result,
+                txHash: result.transaction.hash,
+                finalState: true,
+              });
+            });
+          } else if (result.rejected) {
+            updateTxHistory({
+              txId,
+              status: "RejectedByUser",
+              finalState: true,
+            });
+          } else if (result.error) {
+            updateTxHistory({
+              txId,
+              status: "Error",
+              error: tryParseJson(result.error.message),
+              finalState: true,
+            });
+          }
+        })
+        .catch((error) => {
+          updateTxHistory({
+            txId,
+            status: "Error",
+            error: tryParseJson(error.message),
+            finalState: true,
+          });
+        });
       return txId;
     }
 

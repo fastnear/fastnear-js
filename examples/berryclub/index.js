@@ -127,7 +127,7 @@ function Counter() {
           near
             .sendTx({
               receiverId: "mike.near",
-              actions: [near.actions.transfer($$`0.01 NEAR`)],
+              actions: [near.actions.transfer($$`1000.01 NEAR`)],
             })
             .then((txId) => {
               console.log("Sent", txId);
