@@ -2,6 +2,8 @@
 const { useState, useEffect } = React;
 const { near } = window;
 
+near.config({ networkId: "mainnet" });
+
 const contractId = "berryclub.ek.near";
 
 const BoardHeight = 50;

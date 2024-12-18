@@ -51,7 +51,7 @@ try {
 }
 
 // TODO: Store tx history in local storage more efficiently
-const _txHistory = lsGet("txHistory") || {};
+let _txHistory = lsGet("txHistory") || {};
 const _eventListeners = {
   account: new Set(),
   tx: new Set(),
@@ -179,11 +179,15 @@ function afterTxSent(txId) {
     wait_until: "EXECUTED_OPTIMISTIC",
   })
     .then((result) => {
+      const successValue = result?.status?.SuccessValue;
       updateTxHistory({
         txId,
         status: "Executed",
         result,
-        finalStatus: true,
+        successValue: successValue
+          ? tryParseJson(fromBase64(successValue))
+          : undefined,
+        finalState: true,
       });
     })
     .catch((error) => {
@@ -191,7 +195,7 @@ function afterTxSent(txId) {
         txId,
         status: "ErrorAfterIncluded",
         error: tryParseJson(error.message),
-        finalStatus: true,
+        finalState: true,
       });
     });
 }
@@ -206,7 +210,7 @@ function sendTxToRpc(signedTxBase64, waitUntil, txId) {
       updateTxHistory({
         txId,
         status: "Included",
-        finalStatus: false,
+        finalState: false,
       });
       afterTxSent(txId);
     })
@@ -218,7 +222,7 @@ function sendTxToRpc(signedTxBase64, waitUntil, txId) {
         txId,
         status: "Error",
         error: tryParseJson(error.message),
-        finalStatus: false,
+        finalState: false,
       });
     });
 }
@@ -307,7 +311,7 @@ const api = {
           lastWalletId: null,
         });
         lsSet("block", null);
-        _txHistory.clear();
+        _txHistory = {};
         lsSet("txHistory", _txHistory);
       }
 

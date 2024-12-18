@@ -77,10 +77,8 @@ Helper methods to construct action objects:
 
 `near.actions.functionCall({ methodName, gas, deposit, args, argsBase64 }): Action`
 
-// The ammount should be a string in yoctoNEAR
+// The amount should be a string in yoctoNEAR
 `near.actions.transfer(amount: string): Action`
-
-`near.actions.transferFt({ receiverId, ftContract, amount, memo }): Action`
 
 `near.actions.stakeNEAR({ amount, publicKey }): Action`
 
