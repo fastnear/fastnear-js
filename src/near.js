@@ -21,6 +21,9 @@ Big.DP = 27;
 // Constants
 const MaxBlockDelayMs = 1000 * 60 * 60 * 6; // 6 hours
 
+// const WIDGET_URL = "https://wallet-adapter.fastnear.com";
+const WIDGET_URL = "http://localhost:3000/";
+
 const DEFAULT_NETWORK_ID = "mainnet";
 const NETWORKS = {
   testnet: {
@@ -34,7 +37,7 @@ const NETWORKS = {
 };
 
 // State
-let _config = { ...NETWORKS[DEFAULT_NETWORK_ID] };
+let _config = lsGet("config") || { ...NETWORKS[DEFAULT_NETWORK_ID] };
 
 let _state = lsGet("state") || {};
 try {
@@ -126,7 +129,7 @@ function onAdapterStateUpdate(state) {
 _adapter = new WalletAdapter({
   onStateUpdate: onAdapterStateUpdate,
   lastState: getWalletAdapterState(),
-  widgetUrl: "http://localhost:3000/",
+  widgetUrl: WIDGET_URL,
 });
 
 // Utils
@@ -297,20 +300,32 @@ const api = {
   config(newConfig) {
     if (newConfig) {
       if (newConfig.networkId && _config.networkId !== newConfig.networkId) {
-        throw new Error("TODO: Network ID change should handle scope");
+        _config = { ...NETWORKS[newConfig.networkId] };
+        updateState({
+          accountId: null,
+          privateKey: null,
+          lastWalletId: null,
+        });
+        lsSet("block", null);
+        _txHistory.clear();
+        lsSet("txHistory", _txHistory);
       }
+
       _config = { ..._config, ...newConfig };
+      lsSet("config", _config);
     }
     return _config;
   },
 
   get authStatus() {
-    if (!_state.accountId) return "SignedOut";
+    if (!_state.accountId) {
+      return "SignedOut";
+    }
 
     // Check for limited access key
     const accessKey = _state.publicKey;
     const contractId = _state.accessKeyContractId;
-    if (accessKey) {
+    if (accessKey && contractId && _state.privateKey) {
       return {
         type: "SignedInWithLimitedAccessKey",
         accessKey,
@@ -391,7 +406,11 @@ const api = {
     const privateKey = _state.privateKey;
     const txId = `tx-${Date.now()}-${Math.random()}`;
 
-    if (receiverId !== _state.accessKeyContractId || !canSignWithLAK(actions)) {
+    if (
+      !privateKey ||
+      receiverId !== _state.accessKeyContractId ||
+      !canSignWithLAK(actions)
+    ) {
       const jsonTransaction = {
         signerId,
         receiverId,

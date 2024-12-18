@@ -2,6 +2,45 @@
 
 FastNear is a JavaScript library that allows you to interact with the NEAR blockchain. It is designed to be fast, lightweight, and easy to use.
 
+## TODO
+
+- Tests
+  - [ ] Test injected Meteor wallet
+  - [ ] Test sign in without a contractID
+  - [ ] Test all actions
+  - [ ] 
+
+- FastNear
+  - [ ] Support testnet
+    - [ ] Remember the network ID in the local storage state.
+  - [ ] More examples
+    - [ ] Hello world (just a view call read-only)
+    - [ ] Sign in
+      - [ ] With contract ID
+      - [ ] Without contract ID
+  - [ ] Documentation below
+  - [ ] Send multiple transactions
+- Wallet Adapter
+  - [ ] Redirect to wallet should be there
+  - [ ] Store its own state in the local storage
+  - [ ] Handle URL after redirect (for my near wallet)
+  - [ ] Add sign out method
+  - [ ] Take RPC URL from the config (pass to widget)
+- Wallet Adapter Widget
+  - [ ] Single transaction API instead of using `sendTransactions`, because wallets are sooo bad.
+  - [ ] Improve Meteor button UI. Also don't show button if it's injected.
+  - [ ] Sign out page to handle Meteor sign out flow.
+  - [ ] Ask HERE why they don't use public key for sign in?
+  - [ ] Take RPC URL from the wallet adapter
+  - [ ] Delegate Action maybe not supported. Check.
+  - [ ] Add more wallets
+    - [ ] MetaMask
+    - [ ] Bitte
+    - [ ] Near Mobile
+    - [ ] Telegram auto sign in with injection from Here
+
+
+
 ## Interface
 
 Global object `window.near` is available after including the library. It has the following methods:
